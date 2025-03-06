@@ -63,6 +63,7 @@ target = "riscv64gc-unknown-none-elf"
 ```
 
 创建lang_items.rs并提供panic_handler
+
 ```rust
 use core::panic::PanicInfo;
 
@@ -169,10 +170,123 @@ macro_rules! println {
 
 ### 4.5 实现彩色输出并分级
 #### 4.5.1 实现Makefile
+在此之前，我并不懂Makefile的写法，于是我用把QEMU命令交给AI，让他先帮我生成了下面的Makefile，至少让make run能够先跑起来
+```Makefile
+# 交叉编译工具链
+CARGO = cargo
+OBJCOPY = rust-objcopy
 
+# 目标架构
+TARGET = riscv64gc-unknown-none-elf
+
+# OS 可执行文件路径
+KERNEL_ELF = target/$(TARGET)/release/os2
+KERNEL_BIN = $(KERNEL_ELF).bin
+
+# RustSBI Bootloader 路径
+RUSTSBI = ./bootloader/rustsbi-qemu.bin
+
+# 日志级别
+LOG ?= INFO
+RUSTFLAGS += --cfg log_level=\"$(LOG)\"
+
+# QEMU 运行参数
+QEMU = qemu-system-riscv64
+QEMU_ARGS = -machine virt -nographic -bios $(RUSTSBI) -device loader,file=$(KERNEL_BIN),addr=0x80200000
+
+# 默认目标
+all: build
+
+# 构建 OS
+build:
+	@$(CARGO) build --release --target $(TARGET)
+
+# 转换 ELF 到 BIN
+objcopy: build
+	@$(OBJCOPY) --strip-all -O binary $(KERNEL_ELF) $(KERNEL_BIN)
+
+# 运行 QEMU
+run: objcopy
+	@$(QEMU) $(QEMU_ARGS)
+
+# 清理
+clean:
+	@$(CARGO) clean
+	@rm -f $(KERNEL_BIN)
+
+```
+make run现在能跑了，不过还没实现分级和颜色
+![示例图片](./images/make_run.png)
 #### 4.5.2 实现彩色log分级输出
+我查找了前人的资料，发现要实现这个功能需要两步。第一是实现一个Log方法，第二是通过option_env获取LOG=参数，根据参数选择输出等级
 
+首先是实现Log
+```rust
+truct SimpleLogger;
 
+impl Log for SimpleLogger {
+    fn enabled(&self, _metadata: &Metadata) -> bool {
+        true
+    }
+    fn log(&self, record: &Record) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        let color = match record.level() {
+            Level::Error => 31, // Red
+            Level::Warn => 93,  // BrightYellow
+            Level::Info => 34,  // Blue
+            Level::Debug => 32, // Green
+            Level::Trace => 90, // BrightBlack
+        };
+        println!(
+            "\u{1B}[{}m[{:>5}] {}\u{1B}[0m",
+            color,
+            record.level(),
+            record.args(),
+        );
+    }
+    fn flush(&self) {}
+}
+```
+其次是init函数
+```rust
+pub fn init() {
+    static LOGGER: SimpleLogger = SimpleLogger;
+    log::set_logger(&LOGGER).unwrap();
+    log::set_max_level(match option_env!("LOG") {
+        Some("ERROR") => LevelFilter::Error,
+        Some("WARN") => LevelFilter::Warn,
+        Some("INFO") => LevelFilter::Info,
+        Some("DEBUG") => LevelFilter::Debug,
+        Some("TRACE") => LevelFilter::Trace,
+        _ => LevelFilter::Off,
+    });
+}
+```
+之后在主函数中输出
+```rust
+pub fn rust_main() -> u8 {
+    clear_bss();
+    console_putchar('c' as usize);
+    println!("Hello, world!");
+    init();
+    log::info!("Kernel started!");
+    log::warn!("Warning message!");
+    log::error!("Error message!");
+    log::debug!("Debug message!");
+    log::trace!("Trace message!");
+    // panic!("Shutdown machine!");
+    1
+}
+```
+尝试make run LOG=INFO，得到
+![示例图片](./images/make_run_loginfo.png)
+
+尝试make run LOG=ERROR,得到
+![示例图片](./images/make_run_logerror.png)
+
+至此，实验完成
 ## 5. 遇到的问题及解决方法
 ### 5.1 gdb调试
 执行下面的指令时遇到错误了错误
@@ -194,5 +308,14 @@ sudo apt install gdb-multiarch
 接下来就可以通过gdb-multiarch进行调试了
 
 
+### 5.2 分级输出
+我在LOG=()这个输入的参数这里踩了坑，AI告诉我要在Makefile里加上下面这样的代码
+```Makefile
+# 日志级别
+LOG ?= INFO
+RUSTFLAGS += --cfg log_level=\"$(LOG)\"
+```
+但是一直产生一些报错，
+我在这里疑惑了很久，后面参考了rcore实验ch2中的代码，发现用env_option即可获取，看来AI还是不是万能的哈哈哈
 
 
