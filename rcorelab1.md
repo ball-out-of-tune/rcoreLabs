@@ -56,10 +56,11 @@
 ## 4. 实践作业的完成过程及运行结果
 ### 4.1 移除标准库依赖
 在 os 目录下新建 .cargo 目录，并在这个目录下创建 config 文件，并在里面输入如下内容：
-
+```rust
 os2/.cargo/config
 [build]
 target = "riscv64gc-unknown-none-elf"
+```
 
 创建lang_items.rs并提供panic_handler
 use core::panic::PanicInfo;
@@ -95,6 +96,7 @@ global_asm!(include_str!("entry.asm"));
 ![示例图片](./images/gdb_verify.png)
 
 ### 4.3 分配并使用启动栈
+
 os/src/entry.asm写入
     .section .text.entry
     .globl _start
