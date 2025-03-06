@@ -63,25 +63,29 @@ target = "riscv64gc-unknown-none-elf"
 ```
 
 创建lang_items.rs并提供panic_handler
+```rust
 use core::panic::PanicInfo;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
-
+```
 main函数中引入mod lang_items;
 结果如下：
 ![示例图片](./images/remove_dependency.png)
 
 ### 4.2 内核初始化
-os/src/entry.asm中写入
+```rust
+#os/src/entry.asm
      .section .text.entry
      .globl _start
  _start:
      li x1, 100
+```
 
-main.rs写入
+```rust
+# main.rs写入
 #![no_std]
 #![no_main]
 
@@ -89,15 +93,15 @@ mod lang_items;
 
 use core::arch::global_asm;
 global_asm!(include_str!("entry.asm"));
-
-写入link.ld
+```
+再完成link.ld脚本保证能正确链接
 
 最后使用gdb验证
 ![示例图片](./images/gdb_verify.png)
 
 ### 4.3 分配并使用启动栈
-
-os/src/entry.asm写入
+```rust
+#os/src/entry.asm
     .section .text.entry
     .globl _start
 _start:
@@ -110,8 +114,9 @@ boot_stack_lower_bound:
     .space 4096 * 16
     .globl boot_stack_top
 boot_stack_top:
-
-main.rs中
+```
+```rust
+# main.rs
 pub fn rust_main() -> ! {
     clear_bss();
     loop {}
@@ -126,9 +131,10 @@ fn clear_bss() {
         unsafe { (a as *mut u8).write_volatile(0) }
     });
 }
-
+```
 ### 4.4 实现输出和关机
 关键代码：
+```rust
 pub fn console_putchar(c: usize) {
     #[allow(deprecated)]
     sbi_rt::legacy::console_putchar(c);
@@ -157,6 +163,7 @@ macro_rules! println {
         $crate::console::print(format_args!(concat!($fmt, "\n") $(, $($arg)+)?));
     }
 }
+```
 ![示例图片](./images/helloworld.png)
 成功输出helloworld并关机
 
@@ -169,18 +176,21 @@ macro_rules! println {
 ## 5. 遇到的问题及解决方法
 ### 5.1 gdb调试
 执行下面的指令时遇到错误了错误
-
+```sh
 riscv64-unknown-elf-gdb \
     -ex 'file target/riscv64gc-unknown-none-elf/release/os2' \
     -ex 'set arch riscv:rv64' \
     -ex 'target remote localhost:1234'
-
+```
 错误信息：
+```sh
 riscv64-unknown-elf-gdb: command not found
-
+```
 通过询问AI得知安装指令
+```sh
 sudo apt update
 sudo apt install gdb-multiarch
+```
 接下来就可以通过gdb-multiarch进行调试了
 
 
